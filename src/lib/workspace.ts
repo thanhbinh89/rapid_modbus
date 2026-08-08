@@ -13,10 +13,17 @@ import { FORMATS } from '../protocol/formats';
 import type { FormatId } from '../protocol/formats';
 import { DEFAULT_SERIAL_SETTINGS } from '../transport/link';
 import type { SerialSettings } from '../transport/link';
-import type { Definition, DisplayConfig } from '../store/types';
-import { defaultDisplay } from '../store/types';
+import type {
+  ColorRule,
+  ConditionalColor,
+  Definition,
+  DisplayConfig,
+  RowConfig,
+  Scaling,
+} from '../store/types';
+import { CONDITIONAL_COLORS, defaultDisplay } from '../store/types';
 
-export const WORKSPACE_VERSION = 1;
+export const WORKSPACE_VERSION = 2;
 
 export interface Workspace {
   version: number;
@@ -39,6 +46,7 @@ export class WorkspaceError extends Error {
 
 const FORMAT_IDS = new Set<string>(FORMATS.map((f) => f.id));
 const READ_FCS = new Set<number>([1, 2, 3, 4]);
+const COLORS = new Set<string>(CONDITIONAL_COLORS);
 
 export function buildWorkspace(
   connection: Workspace['connection'],
@@ -102,7 +110,8 @@ function readSettings(raw: unknown): SerialSettings {
   const baudRate = Number(raw.baudRate);
   const parity = raw.parity;
   return {
-    baudRate: Number.isFinite(baudRate) && baudRate > 0 ? baudRate : DEFAULT_SERIAL_SETTINGS.baudRate,
+    baudRate:
+      Number.isFinite(baudRate) && baudRate > 0 ? baudRate : DEFAULT_SERIAL_SETTINGS.baudRate,
     dataBits: raw.dataBits === 7 ? 7 : 8,
     stopBits: raw.stopBits === 2 ? 2 : 1,
     parity: parity === 'even' || parity === 'odd' ? parity : 'none',
@@ -154,38 +163,102 @@ function readDefinition(raw: unknown, index: number): Definition {
   };
 }
 
-function readDisplay(raw: unknown): DisplayConfig {
+export function readDisplay(raw: unknown): DisplayConfig {
   const fallback = defaultDisplay();
   if (!isRecord(raw)) return fallback;
 
   return {
     defaultFormat: isFormatId(raw.defaultFormat) ? raw.defaultFormat : fallback.defaultFormat,
-    formats: readFormatMap(raw.formats),
-    names: readNameMap(raw.names),
+    rows: readRows(raw),
+    valueNames: readValueNames(raw.valueNames),
+    colorRules: readColorRules(raw.colorRules),
   };
 }
 
-function readFormatMap(raw: unknown): Record<number, FormatId> {
-  const out: Record<number, FormatId> = {};
+/**
+ * v1 kept `formats` and `names` as separate maps; v2 merges them into one
+ * per-row record so scaling and units have somewhere to live.
+ */
+function readRows(display: Record<string, unknown>): Record<number, RowConfig> {
+  const rows: Record<number, RowConfig> = {};
+
+  const put = (key: string, patch: RowConfig) => {
+    const offset = Number(key);
+    if (!Number.isInteger(offset) || offset < 0) return;
+    // A row whose only setting was dropped as invalid should vanish, not
+    // linger as an empty object.
+    const merged = { ...rows[offset], ...patch };
+    if (Object.keys(merged).length > 0) rows[offset] = merged;
+  };
+
+  if (isRecord(display.formats)) {
+    for (const [key, value] of Object.entries(display.formats)) {
+      // Silently drop unknown formats — an old file should still open.
+      if (isFormatId(value)) put(key, { format: value });
+    }
+  }
+  if (isRecord(display.names)) {
+    for (const [key, value] of Object.entries(display.names)) {
+      if (typeof value === 'string') put(key, { name: value });
+    }
+  }
+
+  if (isRecord(display.rows)) {
+    for (const [key, value] of Object.entries(display.rows)) {
+      if (!isRecord(value)) continue;
+      const config: RowConfig = {};
+      if (typeof value.name === 'string') config.name = value.name;
+      if (isFormatId(value.format)) config.format = value.format;
+      if (typeof value.unit === 'string') config.unit = value.unit;
+      const scaling = readScaling(value.scaling);
+      if (scaling) config.scaling = scaling;
+      put(key, config);
+    }
+  }
+
+  return rows;
+}
+
+function readScaling(raw: unknown): Scaling | undefined {
+  if (!isRecord(raw)) return undefined;
+  const factor = Number(raw.factor);
+  const offset = Number(raw.offset);
+  // A zero factor would flatten every reading to a constant and make the
+  // write dialog's inverse undefined, so treat it as unset.
+  if (!Number.isFinite(factor) || factor === 0) return undefined;
+  return { factor, offset: Number.isFinite(offset) ? offset : 0 };
+}
+
+function readValueNames(raw: unknown): Record<number, string> {
+  const out: Record<number, string> = {};
   if (!isRecord(raw)) return out;
   for (const [key, value] of Object.entries(raw)) {
-    const offset = Number(key);
-    // Silently drop unknown formats — an old file should still open.
-    if (Number.isInteger(offset) && offset >= 0 && isFormatId(value)) out[offset] = value;
+    const numeric = Number(key);
+    if (Number.isInteger(numeric) && typeof value === 'string' && value) out[numeric] = value;
   }
   return out;
 }
 
-function readNameMap(raw: unknown): Record<number, string> {
-  const out: Record<number, string> = {};
-  if (!isRecord(raw)) return out;
-  for (const [key, value] of Object.entries(raw)) {
-    const offset = Number(key);
-    if (Number.isInteger(offset) && offset >= 0 && typeof value === 'string') {
-      out[offset] = value;
-    }
+function readColorRules(raw: unknown): ColorRule[] {
+  if (!Array.isArray(raw)) return [];
+  const rules: ColorRule[] = [];
+  for (const [index, entry] of raw.entries()) {
+    if (!isRecord(entry)) continue;
+    const min = Number(entry.min);
+    const max = Number(entry.max);
+    if (!Number.isFinite(min) || !Number.isFinite(max)) continue;
+    const color = COLORS.has(String(entry.color))
+      ? (entry.color as ConditionalColor)
+      : 'amber';
+    rules.push({
+      id: typeof entry.id === 'string' && entry.id ? entry.id : `rule-${index + 1}`,
+      // Tolerate reversed bounds rather than silently matching nothing.
+      min: Math.min(min, max),
+      max: Math.max(min, max),
+      color,
+    });
   }
-  return out;
+  return rules;
 }
 
 function isFormatId(value: unknown): value is FormatId {

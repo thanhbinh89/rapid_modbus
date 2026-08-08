@@ -19,13 +19,18 @@ export function definitionToCsv(
   rows: GridRow[],
   plcBase1: boolean,
 ): string {
-  const table: string[][] = [['address', 'name', 'format', 'value']];
+  // Both the raw and the scaled value are exported: the raw one is what the
+  // device actually returned, and that is what someone re-checking the
+  // scaling factors needs to see.
+  const table: string[][] = [['address', 'name', 'format', 'raw', 'value', 'unit']];
   for (const row of rows) {
     table.push([
       formatAddress(definition.fc, row.address, plcBase1),
       row.name,
       row.format,
       row.decoded?.text ?? '',
+      row.text,
+      row.unit,
     ]);
   }
   return toCsv(table);

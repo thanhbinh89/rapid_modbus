@@ -37,7 +37,19 @@ describe('round trip', () => {
   it('survives serialize then parse unchanged', () => {
     const original = buildWorkspace(
       connection,
-      [definition({ display: { defaultFormat: 'float32_CDAB', formats: { 2: 'int16' }, names: { 0: 'Voltage L1' } } })],
+      [
+        definition({
+          display: {
+            defaultFormat: 'float32_CDAB',
+            rows: {
+              0: { name: 'Voltage L1', unit: 'V', scaling: { factor: 0.1, offset: 0 } },
+              2: { format: 'int16' },
+            },
+            valueNames: { 0: 'Off', 1: 'Run' },
+            colorRules: [{ id: 'r1', min: 250, max: 999, color: 'red' }],
+          },
+        }),
+      ],
       true,
     );
     const restored = parseWorkspace(serializeWorkspace(original));
@@ -119,17 +131,87 @@ describe('repair of sloppy input', () => {
 
   it('drops an unknown format rather than refusing the file', () => {
     const workspace = validateWorkspace({
-      version: 1,
+      version: 2,
       definitions: [
         {
           ...definition(),
-          display: { defaultFormat: 'not_a_format', formats: { 0: 'nope', 1: 'int16' }, names: {} },
+          display: {
+            defaultFormat: 'not_a_format',
+            rows: { 0: { format: 'nope' }, 1: { format: 'int16' } },
+          },
         },
       ],
     });
     const display = workspace.definitions[0].display;
     expect(display.defaultFormat).toBe('uint16');
-    expect(display.formats).toEqual({ 1: 'int16' });
+    expect(display.rows).toEqual({ 1: { format: 'int16' } });
+  });
+
+  it('drops a zero scaling factor, which has no inverse', () => {
+    const workspace = validateWorkspace({
+      version: 2,
+      definitions: [
+        { ...definition(), display: { rows: { 0: { scaling: { factor: 0, offset: 3 } } } } },
+      ],
+    });
+    expect(workspace.definitions[0].display.rows[0]?.scaling).toBeUndefined();
+  });
+
+  it('straightens reversed colour-rule bounds instead of matching nothing', () => {
+    const workspace = validateWorkspace({
+      version: 2,
+      definitions: [
+        {
+          ...definition(),
+          display: { colorRules: [{ id: 'r', min: 100, max: 10, color: 'green' }] },
+        },
+      ],
+    });
+    expect(workspace.definitions[0].display.colorRules[0]).toMatchObject({ min: 10, max: 100 });
+  });
+
+  it('falls back to a known colour for an unknown one', () => {
+    const workspace = validateWorkspace({
+      version: 2,
+      definitions: [
+        { ...definition(), display: { colorRules: [{ min: 0, max: 1, color: 'chartreuse' }] } },
+      ],
+    });
+    expect(workspace.definitions[0].display.colorRules[0].color).toBe('amber');
+  });
+});
+
+describe('v1 migration', () => {
+  it('merges the old formats and names maps into per-row config', () => {
+    const workspace = validateWorkspace({
+      version: 1,
+      definitions: [
+        {
+          ...definition(),
+          display: {
+            defaultFormat: 'int16',
+            formats: { 0: 'float32_ABCD', 2: 'hex16' },
+            names: { 0: 'Voltage L1', 3: 'Status' },
+          },
+        },
+      ],
+    });
+
+    const display = workspace.definitions[0].display;
+    expect(display.defaultFormat).toBe('int16');
+    expect(display.rows).toEqual({
+      0: { format: 'float32_ABCD', name: 'Voltage L1' },
+      2: { format: 'hex16' },
+      3: { name: 'Status' },
+    });
+    // v1 had neither of these; they must come back as empty, not undefined.
+    expect(display.valueNames).toEqual({});
+    expect(display.colorRules).toEqual([]);
+  });
+
+  it('stamps migrated workspaces with the current version', () => {
+    const workspace = validateWorkspace({ version: 1, definitions: [] });
+    expect(workspace.version).toBe(WORKSPACE_VERSION);
   });
 
   it('generates an id and name when they are missing', () => {

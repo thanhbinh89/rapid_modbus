@@ -6,8 +6,11 @@ import { formatAddress } from '../lib/plcAddress';
 import { buildRows } from '../lib/rows';
 import type { GridRow } from '../lib/rows';
 import { useAppStore } from '../store/appStore';
-import { EMPTY_STATE } from '../store/types';
+import { EMPTY_STATE, isIdentityScaling } from '../store/types';
 import type { Definition } from '../store/types';
+import { DisplayDialog } from './DisplayDialog';
+import { COLOR_CLASSES } from './format';
+import { RowConfigDialog } from './RowConfigDialog';
 import { Banner, Button, Select } from './primitives';
 import { WriteDialog } from './WriteDialog';
 
@@ -17,7 +20,10 @@ export function ValueGrid({ definition }: { definition: Definition }) {
   const state = useAppStore((s) => s.states[definition.id]) ?? EMPTY_STATE;
   const plcBase1 = useAppStore((s) => s.plcBase1);
   const connected = useAppStore((s) => s.status === 'connected');
+
   const [writing, setWriting] = useState<GridRow | null>(null);
+  const [configuring, setConfiguring] = useState<GridRow | null>(null);
+  const [displayRules, setDisplayRules] = useState(false);
 
   const rows = buildRows(definition, state);
   const defaultSpec = getFormat(definition.display.defaultFormat);
@@ -62,6 +68,8 @@ export function ValueGrid({ definition }: { definition: Definition }) {
           </div>
         )}
 
+        <Button onClick={() => setDisplayRules(true)}>Display rules…</Button>
+
         <div className="ml-auto flex items-center gap-2">
           <LastPolled at={state.at} />
           <Button
@@ -99,7 +107,8 @@ export function ValueGrid({ definition }: { definition: Definition }) {
               <th className="w-28 px-3 py-1.5 font-medium">Address</th>
               <th className="w-56 px-3 py-1.5 font-medium">Name</th>
               <th className="px-3 py-1.5 font-medium">Value</th>
-              <th className="w-56 px-3 py-1.5 font-medium">Format</th>
+              <th className="w-52 px-3 py-1.5 font-medium">Format</th>
+              <th className="w-10 px-1 py-1.5 font-medium" />
             </tr>
           </thead>
           <tbody>
@@ -111,6 +120,7 @@ export function ValueGrid({ definition }: { definition: Definition }) {
                 plcBase1={plcBase1}
                 canWrite={connected && writable}
                 onWrite={() => setWriting(row)}
+                onConfigure={() => setConfiguring(row)}
               />
             ))}
           </tbody>
@@ -119,6 +129,16 @@ export function ValueGrid({ definition }: { definition: Definition }) {
 
       {writing && (
         <WriteDialog definition={definition} row={writing} onClose={() => setWriting(null)} />
+      )}
+      {configuring && (
+        <RowConfigDialog
+          definition={definition}
+          row={configuring}
+          onClose={() => setConfiguring(null)}
+        />
+      )}
+      {displayRules && (
+        <DisplayDialog definition={definition} onClose={() => setDisplayRules(false)} />
       )}
     </div>
   );
@@ -130,13 +150,17 @@ function Row({
   plcBase1,
   canWrite,
   onWrite,
+  onConfigure,
 }: {
   definition: Definition;
   row: GridRow;
   plcBase1: boolean;
   canWrite: boolean;
   onWrite: () => void;
+  onConfigure: () => void;
 }) {
+  const scaled = !isIdentityScaling(row.scaling);
+
   return (
     <tr className="border-b border-zinc-100 hover:bg-sky-50 dark:border-zinc-800 dark:hover:bg-zinc-800/60">
       <td className="tabular px-3 py-1 text-zinc-500 dark:text-zinc-400">
@@ -147,31 +171,67 @@ function Row({
           value={row.name}
           placeholder="—"
           onChange={(event) =>
-            useAppStore.getState().setRowName(definition.id, row.offset, event.target.value)
+            useAppStore
+              .getState()
+              .setRowConfig(definition.id, row.offset, { name: event.target.value })
           }
           className="w-full rounded bg-transparent px-1 py-0.5 text-zinc-700 outline-none placeholder:text-zinc-400 focus:bg-white focus:ring-1 focus:ring-sky-500 dark:text-zinc-300 dark:focus:bg-zinc-800"
         />
       </td>
       <td
         onDoubleClick={canWrite ? onWrite : undefined}
-        title={canWrite ? 'Double-click to write' : undefined}
-        className={`tabular px-3 py-1 font-medium ${
-          row.decoded
-            ? 'text-zinc-900 dark:text-zinc-100'
-            : 'text-zinc-400 dark:text-zinc-600'
-        } ${canWrite ? 'cursor-cell' : ''}`}
+        title={
+          canWrite
+            ? scaled
+              ? `Raw ${row.decoded?.text ?? '—'} — double-click to write`
+              : 'Double-click to write'
+            : scaled
+              ? `Raw ${row.decoded?.text ?? '—'}`
+              : undefined
+        }
+        className={`px-3 py-1 ${canWrite ? 'cursor-cell' : ''}`}
       >
-        {row.decoded?.text ?? '—'}
+        <span
+          className={`tabular rounded px-1.5 py-0.5 font-medium ${
+            row.color
+              ? COLOR_CLASSES[row.color]
+              : row.decoded
+                ? 'text-zinc-900 dark:text-zinc-100'
+                : 'text-zinc-400 dark:text-zinc-600'
+          }`}
+        >
+          {row.text || '—'}
+        </span>
       </td>
       <td className="px-3 py-0.5">
         <Select
           value={row.format}
           onChange={(value) =>
-            useAppStore.getState().setRowFormat(definition.id, row.offset, value as FormatId)
+            useAppStore
+              .getState()
+              .setRowConfig(definition.id, row.offset, { format: value as FormatId })
           }
           options={FORMAT_OPTIONS}
           className="w-full text-xs"
         />
+      </td>
+      <td className="px-1 py-0.5 text-center">
+        <button
+          type="button"
+          onClick={onConfigure}
+          title={
+            scaled
+              ? `Scaled by ${row.scaling?.factor}${row.scaling?.offset ? ` + ${row.scaling.offset}` : ''}`
+              : 'Set scaling and unit'
+          }
+          className={`rounded px-1.5 py-0.5 text-xs ${
+            scaled || row.unit
+              ? 'font-medium text-sky-600 dark:text-sky-400'
+              : 'text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+          }`}
+        >
+          {scaled ? '×' : row.unit ? 'u' : '·'}
+        </button>
       </td>
     </tr>
   );
@@ -203,11 +263,7 @@ function WordOrderButton({
 
 function LastPolled({ at }: { at: number | null }) {
   if (!at) return <span className="text-xs text-zinc-400">not polled</span>;
-  return (
-    <span className="tabular text-xs text-zinc-500">
-      {new Date(at).toLocaleTimeString()}
-    </span>
-  );
+  return <span className="tabular text-xs text-zinc-500">{new Date(at).toLocaleTimeString()}</span>;
 }
 
 function slug(text: string): string {

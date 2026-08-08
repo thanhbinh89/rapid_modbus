@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { encode, getFormat } from '../protocol/formats';
+import { formatNumber } from '../lib/number';
 import { formatAddress } from '../lib/plcAddress';
 import type { GridRow } from '../lib/rows';
+import { removeScaling } from '../lib/rows';
 import { useAppStore } from '../store/appStore';
+import { isIdentityScaling } from '../store/types';
 import type { Definition } from '../store/types';
 import { Banner, Button, Field, Modal, Select, TextInput } from './primitives';
 
@@ -10,6 +13,10 @@ import { Banner, Button, Field, Modal, Select, TextInput } from './primitives';
  * Writing to a live device is the one irreversible thing this tool does, so
  * the dialog spells out exactly what will be sent — slave, address, function
  * and the encoded register words — before the operator commits.
+ *
+ * When the row is scaled, the value entered is the engineering one, because
+ * that is what the operator is thinking in. The raw words that will actually
+ * go on the wire are shown alongside so nothing is hidden.
  */
 export function WriteDialog({
   definition,
@@ -22,17 +29,33 @@ export function WriteDialog({
 }) {
   const plcBase1 = useAppStore((s) => s.plcBase1);
   const isCoil = definition.fc === 1;
+  const scaled = !isIdentityScaling(row.scaling);
 
-  const [text, setText] = useState(row.decoded?.text ?? '');
+  const [text, setText] = useState(
+    scaled && row.scaled !== null ? formatNumber(row.scaled) : (row.decoded?.text ?? ''),
+  );
   const [coilValue, setCoilValue] = useState(row.bit ? '1' : '0');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   let preview: number[] | null = null;
+  let rawValue: number | null = null;
   let encodeError: string | null = null;
+
   if (!isCoil) {
     try {
-      preview = encode(text, row.format);
+      if (scaled) {
+        const entered = Number(text);
+        if (text.trim() === '' || !Number.isFinite(entered)) {
+          throw new RangeError(`"${text}" is not a number.`);
+        }
+        // Registers are integers; rounding here is what makes the round trip
+        // land back on the value the operator typed.
+        rawValue = Math.round(removeScaling(entered, row.scaling));
+        preview = encode(String(rawValue), row.format);
+      } else {
+        preview = encode(text, row.format);
+      }
     } catch (problem) {
       encodeError = problem instanceof Error ? problem.message : String(problem);
     }
@@ -85,12 +108,10 @@ export function WriteDialog({
       <div className="space-y-3">
         <div className="rounded bg-zinc-100 px-3 py-2 text-xs dark:bg-zinc-800">
           <Detail label="Slave" value={String(definition.slaveId)} />
-          <Detail
-            label="Address"
-            value={formatAddress(definition.fc, row.address, plcBase1)}
-          />
+          <Detail label="Address" value={formatAddress(definition.fc, row.address, plcBase1)} />
           <Detail label="Function" value={functionLabel} />
           {!isCoil && <Detail label="Format" value={spec.label} />}
+          {row.name && <Detail label="Name" value={row.name} />}
         </div>
 
         {isCoil ? (
@@ -106,7 +127,7 @@ export function WriteDialog({
             />
           </Field>
         ) : (
-          <Field label="Value">
+          <Field label={scaled ? `Value${row.unit ? ` (${row.unit})` : ''}` : 'Value'}>
             <TextInput
               value={text}
               onChange={setText}
@@ -118,12 +139,26 @@ export function WriteDialog({
         )}
 
         {!isCoil && preview && (
-          <div className="text-xs text-zinc-500 dark:text-zinc-400">
-            Sends{' '}
-            <span className="tabular font-medium text-zinc-900 dark:text-zinc-100">
-              {preview.map((word) => word.toString(16).toUpperCase().padStart(4, '0')).join(' ')}
-            </span>{' '}
-            ({preview.length} register{preview.length > 1 ? 's' : ''})
+          <div className="space-y-1 text-xs text-zinc-500 dark:text-zinc-400">
+            {scaled && rawValue !== null && (
+              <div>
+                Unscaled to raw{' '}
+                <span className="tabular font-medium text-zinc-900 dark:text-zinc-100">
+                  {rawValue}
+                </span>{' '}
+                <span className="opacity-70">
+                  (÷ {row.scaling?.factor}
+                  {row.scaling?.offset ? ` after subtracting ${row.scaling.offset}` : ''})
+                </span>
+              </div>
+            )}
+            <div>
+              Sends{' '}
+              <span className="tabular font-medium text-zinc-900 dark:text-zinc-100">
+                {preview.map((word) => word.toString(16).toUpperCase().padStart(4, '0')).join(' ')}
+              </span>{' '}
+              ({preview.length} register{preview.length > 1 ? 's' : ''})
+            </div>
           </div>
         )}
 

@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { downloadText, timestampSuffix } from './lib/csv';
+import { buildReport } from './lib/report';
 import { WorkspaceError, parseWorkspace, serializeWorkspace } from './lib/workspace';
 import { useAppStore } from './store/appStore';
 import type { Definition } from './store/types';
 import { ConnectionBar } from './ui/ConnectionBar';
 import { DefinitionDialog } from './ui/DefinitionDialog';
 import { DefinitionTabs } from './ui/DefinitionTabs';
+import { ProfileDialog } from './ui/ProfileDialog';
 import { ScanDialog } from './ui/ScanDialog';
 import { StatusBar } from './ui/StatusBar';
 import { TrafficPanel } from './ui/TrafficPanel';
@@ -22,6 +24,7 @@ export default function App() {
 
   const [editing, setEditing] = useState<Definition | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [profiling, setProfiling] = useState(false);
   const [trafficOpen, setTrafficOpen] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -58,6 +61,28 @@ export default function App() {
 
         <div className="ml-auto flex items-center gap-2">
           <Button onClick={() => setScanning(true)}>Scan…</Button>
+          <Button onClick={() => setProfiling(true)}>Profile…</Button>
+          <Button
+            title="Config, totals, values and the hex log in one file"
+            onClick={() => {
+              const s = useAppStore.getState();
+              downloadText(
+                `diagnostic-${timestampSuffix()}.txt`,
+                buildReport({
+                  settings: s.settings,
+                  mode: s.mode,
+                  master: s.masterOptions,
+                  stats: s.stats,
+                  plcBase1: s.plcBase1,
+                  definitions: s.definitions,
+                  states: s.states,
+                  traffic: s.traffic,
+                }),
+              );
+            }}
+          >
+            Report
+          </Button>
           <Button
             onClick={() =>
               downloadText(
@@ -67,7 +92,7 @@ export default function App() {
               )
             }
           >
-            Save workspace
+            Save
           </Button>
           <Button onClick={() => fileInput.current?.click()}>Load</Button>
           <Button variant="ghost" onClick={() => useAppStore.getState().toggleTheme()}>
@@ -149,6 +174,7 @@ export default function App() {
 
       {editing && <DefinitionDialog definition={editing} onClose={() => setEditing(null)} />}
       {scanning && <ScanDialog onClose={() => setScanning(false)} />}
+      {profiling && <ProfileDialog definition={active} onClose={() => setProfiling(false)} />}
       <UpdatePrompt />
     </div>
   );

@@ -18,7 +18,7 @@ import { WebSerialLink, requestPort, webSerialUnavailableReason } from '../trans
 import { debounce, loadWorkspace, saveWorkspace } from '../lib/persistence';
 import { buildWorkspace } from '../lib/workspace';
 import type { Workspace } from '../lib/workspace';
-import type { Definition, DefinitionState } from './types';
+import type { ColorRule, Definition, DefinitionState, RowConfig } from './types';
 import { EMPTY_STATE, defaultDisplay } from './types';
 
 /** Bounded so a session left running overnight cannot exhaust memory. */
@@ -73,12 +73,15 @@ interface AppState {
   disconnect: () => Promise<void>;
 
   addDefinition: () => void;
+  addDefinitionFrom: (definition: Definition) => void;
   updateDefinition: (id: string, patch: Partial<Definition>) => void;
   removeDefinition: (id: string) => void;
   setActive: (id: string) => void;
-  setRowFormat: (id: string, offset: number, format: FormatId) => void;
+  setRowConfig: (id: string, offset: number, patch: Partial<RowConfig>) => void;
   setDefaultFormat: (id: string, format: FormatId) => void;
-  setRowName: (id: string, offset: number, name: string) => void;
+  setValueNames: (id: string, valueNames: Record<number, string>) => void;
+  setColorRules: (id: string, rules: ColorRule[]) => void;
+  replaceDisplay: (id: string, display: Definition['display']) => void;
 
   startPolling: () => void;
   stopPolling: () => Promise<void>;
@@ -296,6 +299,18 @@ export const useAppStore = create<AppState>((set, get) => {
       persist();
     },
 
+    addDefinitionFrom(definition) {
+      // Keep ids unique even if a profile is imported twice in one session.
+      const unique = { ...definition, id: `${definition.id}-${definitionCounter++}` };
+      set((state) => ({
+        definitions: [...state.definitions, unique],
+        states: { ...state.states, [unique.id]: { ...EMPTY_STATE } },
+        activeId: unique.id,
+      }));
+      syncScheduler();
+      persist();
+    },
+
     updateDefinition(id, patch) {
       set((state) => ({
         definitions: state.definitions.map((definition) =>
@@ -330,7 +345,7 @@ export const useAppStore = create<AppState>((set, get) => {
       set({ activeId: id });
     },
 
-    setRowFormat(id, offset, format) {
+    setRowConfig(id, offset, patch) {
       set((state) => ({
         definitions: state.definitions.map((definition) =>
           definition.id === id
@@ -338,7 +353,10 @@ export const useAppStore = create<AppState>((set, get) => {
                 ...definition,
                 display: {
                   ...definition.display,
-                  formats: { ...definition.display.formats, [offset]: format },
+                  rows: {
+                    ...definition.display.rows,
+                    [offset]: { ...definition.display.rows[offset], ...patch },
+                  },
                 },
               }
             : definition,
@@ -349,32 +367,49 @@ export const useAppStore = create<AppState>((set, get) => {
 
     setDefaultFormat(id, format) {
       set((state) => ({
+        definitions: state.definitions.map((definition) => {
+          if (definition.id !== id) return definition;
+          // A new default clears per-row format overrides — that is what
+          // "apply this format to the whole window" has to mean. Names, units
+          // and scaling survive, since they describe the register, not how it
+          // happens to be rendered.
+          const rows: Record<number, RowConfig> = {};
+          for (const [offset, config] of Object.entries(definition.display.rows)) {
+            const { format: _dropped, ...rest } = config;
+            if (Object.keys(rest).length > 0) rows[Number(offset)] = rest;
+          }
+          return { ...definition, display: { ...definition.display, defaultFormat: format, rows } };
+        }),
+      }));
+      persist();
+    },
+
+    setValueNames(id, valueNames) {
+      set((state) => ({
         definitions: state.definitions.map((definition) =>
           definition.id === id
-            ? {
-                ...definition,
-                // A new default replaces per-row overrides, which is what
-                // "apply this format to the whole window" has to mean.
-                display: { ...definition.display, defaultFormat: format, formats: {} },
-              }
+            ? { ...definition, display: { ...definition.display, valueNames } }
             : definition,
         ),
       }));
       persist();
     },
 
-    setRowName(id, offset, name) {
+    setColorRules(id, colorRules) {
       set((state) => ({
         definitions: state.definitions.map((definition) =>
           definition.id === id
-            ? {
-                ...definition,
-                display: {
-                  ...definition.display,
-                  names: { ...definition.display.names, [offset]: name },
-                },
-              }
+            ? { ...definition, display: { ...definition.display, colorRules } }
             : definition,
+        ),
+      }));
+      persist();
+    },
+
+    replaceDisplay(id, display) {
+      set((state) => ({
+        definitions: state.definitions.map((definition) =>
+          definition.id === id ? { ...definition, display } : definition,
         ),
       }));
       persist();
