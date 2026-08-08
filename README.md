@@ -30,6 +30,18 @@ If you need Modbus TCP, use a different tool.
 | **Context** | HTTPS or `localhost` — Web Serial requires a secure context |
 | **Hardware** | A USB-to-RS485 adapter with **automatic direction control** |
 
+## Works offline
+
+rapid_modbus is a PWA that precaches everything it needs. Open it once with internet, then
+install it from the browser's address bar — after that it runs with no network at all.
+
+This is not a nicety. Plant rooms, substations and switchgear cabinets rarely have usable
+internet, and a diagnostic tool that needs a connection to start is a tool you cannot use where
+you actually need it.
+
+Updates are opt-in: a prompt appears when a new version is cached, because reloading drops the
+serial connection and nobody wants that to happen unannounced mid-commissioning.
+
 ### About the RS-485 adapter
 
 rapid_modbus does not drive RTS, DTR or any other control signal. JavaScript cannot toggle
@@ -50,8 +62,22 @@ npm run dev
 |---|---|
 | `npm run dev` | Start the dev server (`localhost`, so Web Serial works) |
 | `npm run build` | Typecheck and build to `dist/` |
-| `npm test` | Run the protocol test suite |
+| `npm run preview` | Serve the production build — the only way to exercise the service worker |
+| `npm test` | Run the test suite |
 | `npm run lint` | Lint with oxlint |
+| `npm run icons` | Regenerate the PWA icon set from geometry |
+
+The service worker is disabled in `npm run dev` so it cannot serve stale code while you work.
+Use `npm run build && npm run preview` to test offline behaviour.
+
+### Deployment
+
+Pushing to `main` builds and publishes to GitHub Pages via
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). The workflow lints, tests and
+builds before it deploys, so a red test suite never reaches the field.
+
+One manual step is needed the first time: in the repository's **Settings → Pages**, set
+**Source** to **GitHub Actions**.
 
 ## Architecture
 
@@ -140,9 +166,9 @@ are first-class and switchable per cell.
 - [x] Slave ID scan / address scan / auto-detect wizard
 - [x] Grid UI, write dialog, communication traffic monitor
 - [x] Workspace save/load + IndexedDB autosave
+- [x] PWA offline support + GitHub Pages deployment
 - [ ] Scaling, conditional colours, value names
 - [ ] Device profiles (importable register maps)
-- [ ] PWA offline support + GitHub Pages deployment
 
 See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) for the full specification.
 

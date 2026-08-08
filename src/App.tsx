@@ -9,6 +9,7 @@ import { DefinitionTabs } from './ui/DefinitionTabs';
 import { ScanDialog } from './ui/ScanDialog';
 import { StatusBar } from './ui/StatusBar';
 import { TrafficPanel } from './ui/TrafficPanel';
+import { UpdatePrompt } from './ui/UpdatePrompt';
 import { ValueGrid } from './ui/ValueGrid';
 import { Banner, Button } from './ui/primitives';
 
@@ -148,6 +149,7 @@ export default function App() {
 
       {editing && <DefinitionDialog definition={editing} onClose={() => setEditing(null)} />}
       {scanning && <ScanDialog onClose={() => setScanning(false)} />}
+      <UpdatePrompt />
     </div>
   );
 }
