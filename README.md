@@ -7,8 +7,8 @@ Inspired by [Modbus Poll](https://www.modbustools.com/), rebuilt for the reality
 customer laptops with locked-down admin rights, no internet in the plant room, and a datasheet
 nobody can find.
 
-> **Status: early development.** The protocol layer is implemented and tested.
-> The transport, polling engine and UI are not built yet.
+> **Status: early development.** The protocol, transport and polling engine are implemented
+> and tested (152 unit tests, no hardware required). The UI is not built yet.
 
 ## Serial only — no TCP
 
@@ -59,7 +59,7 @@ encoding decision is unit-testable without hardware attached. This is where the 
 live — a wrong CRC or a swapped word order looks like a wiring fault and costs hours on site.
 
 ```
-src/protocol/     Pure TypeScript, no browser APIs — fully unit tested
+src/protocol/     Pure TypeScript, no browser APIs
   crc16.ts          CRC-16/MODBUS
   lrc.ts            LRC for ASCII mode
   pdu.ts            Request builders and response parsers (FC 01-06, 15, 16)
@@ -68,7 +68,26 @@ src/protocol/     Pure TypeScript, no browser APIs — fully unit tested
   expectedLength.ts Response length derivation (see below)
   formats.ts        The 29 display formats
   errors.ts         Exception codes and transport errors, with field hints
+
+src/transport/    The byte layer
+  link.ts           SerialLink interface — the seam that keeps everything testable
+  framer.ts         Byte stream back into frames
+  webSerial.ts      The only file that touches navigator.serial
+
+src/core/         The engine
+  request.ts        One shape of "thing to send", shared by every caller
+  master.ts         Serialised transactions, timeout, retry, traffic events
+  scheduler.ts      Round-robin polling across definitions
+  scanner.ts        Slave scan, address scan, auto-detect
+
+src/testing/      Test-only; nothing in the app imports it
+  fakeLink.ts       A simulated Modbus line with misbehaving devices
 ```
+
+Everything above `webSerial.ts` runs against a fake link, so the polling engine is tested
+without a browser or a device attached — including the cases that matter in the field: a reply
+delivered one byte at a time, a corrupted checksum, a device that answers only with exceptions,
+and a late reply arriving after the master gave up.
 
 ### Why response length, not t3.5 timing
 
@@ -105,10 +124,10 @@ are first-class and switchable per cell.
 ## Roadmap
 
 - [x] Protocol layer + tests
-- [ ] Web Serial transport and frame reader
-- [ ] Polling engine (round-robin across definitions)
+- [x] Web Serial transport and frame reader
+- [x] Polling engine (round-robin across definitions)
+- [x] Slave ID scan / address scan / auto-detect wizard
 - [ ] Grid UI, write dialogs, communication traffic monitor
-- [ ] Slave ID scan / address scan / auto-detect wizard
 - [ ] Device profiles (importable register maps)
 - [ ] PWA offline support + GitHub Pages deployment
 
