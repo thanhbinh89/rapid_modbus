@@ -40,7 +40,11 @@ jobs:
         env:
           GITHUB_PAGES: 'true'
 
+      # `enablement` turns Pages on through the API on the first run, so the
+      # repository does not have to be configured by hand before deploying.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:

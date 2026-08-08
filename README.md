@@ -76,8 +76,8 @@ Pushing to `main` builds and publishes to GitHub Pages via
 [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). The workflow lints, tests and
 builds before it deploys, so a red test suite never reaches the field.
 
-One manual step is needed the first time: in the repository's **Settings → Pages**, set
-**Source** to **GitHub Actions**.
+The workflow enables Pages through the API on its first run. If your organisation blocks that,
+set **Settings → Pages → Source** to **GitHub Actions** by hand and re-run.
 
 ## Architecture
 
