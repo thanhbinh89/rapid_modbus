@@ -1,4 +1,4 @@
-# rapid_modbus
+# Rapid Modbus
 
 A browser-based **Modbus RTU/ASCII master** for commissioning Modbus devices in the field.
 Runs entirely in the browser over the [Web Serial API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Serial_API) - no installation, no license, no backend.
@@ -6,9 +6,6 @@ Runs entirely in the browser over the [Web Serial API](https://developer.mozilla
 Inspired by [Modbus Poll](https://www.modbustools.com/), rebuilt for the reality of field work:
 customer laptops with locked-down admin rights, no internet in the plant room, and a datasheet
 nobody can find.
-
-> **Status: working against real hardware.** 231 unit tests, plus a verified live session
-> against an FTDI USB-serial adapter - see [Verification](#verification).
 
 ![rapid_modbus polling a live device over RS-485](docs/screenshot.png)
 
@@ -25,14 +22,6 @@ Apps, not ordinary web pages. Supporting TCP would require a local WebSocket↔T
 that is a backend, and it is out of scope for this project.
 
 If you need Modbus TCP, use a different tool.
-
-## Requirements
-
-| | |
-|---|---|
-| **Browser** | Chrome, Edge or Opera 89+ on Windows, macOS, Linux or ChromeOS. Chrome 148+ on Android (limited devices). **Safari and Firefox do not support Web Serial.** |
-| **Context** | HTTPS or `localhost` - Web Serial requires a secure context |
-| **Hardware** | A USB-to-RS485 adapter with **automatic direction control** |
 
 ## Works offline
 
@@ -73,15 +62,6 @@ npm run dev
 
 The service worker is disabled in `npm run dev` so it cannot serve stale code while you work.
 Use `npm run build && npm run preview` to test offline behaviour.
-
-### Deployment
-
-Pushing to `main` builds and publishes to GitHub Pages via
-[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). The workflow lints, tests and
-builds before it deploys, so a red test suite never reaches the field.
-
-The workflow enables Pages through the API on its first run. If your organisation blocks that,
-set **Settings → Pages → Source** to **GitHub Actions** by hand and re-run.
 
 ## Architecture
 
