@@ -7,8 +7,9 @@ Inspired by [Modbus Poll](https://www.modbustools.com/), rebuilt for the reality
 customer laptops with locked-down admin rights, no internet in the plant room, and a datasheet
 nobody can find.
 
-> **Status: early development.** The protocol, transport and polling engine are implemented
-> and tested (152 unit tests, no hardware required). The UI is not built yet.
+> **Status: usable, not yet field-proven.** The protocol, transport, polling engine and UI are
+> built, with 188 unit tests that need no hardware. It has not yet been run against a real
+> device — see [Not verified](#not-verified).
 
 ## Serial only — no TCP
 
@@ -80,6 +81,16 @@ src/core/         The engine
   scheduler.ts      Round-robin polling across definitions
   scanner.ts        Slave scan, address scan, auto-detect
 
+src/lib/          Pure helpers, all unit tested
+  plcAddress.ts     4xxxx notation <-> base-0 protocol addresses
+  rows.ts           Response values into grid rows (wide formats span registers)
+  workspace.ts      Save/load, with validation on import
+  csv.ts            CSV export and in-browser downloads
+  persistence.ts    IndexedDB autosave
+
+src/store/        Zustand state and the actions that drive the engine
+src/ui/           React components
+
 src/testing/      Test-only; nothing in the app imports it
   fakeLink.ts       A simulated Modbus line with misbehaving devices
 ```
@@ -127,11 +138,24 @@ are first-class and switchable per cell.
 - [x] Web Serial transport and frame reader
 - [x] Polling engine (round-robin across definitions)
 - [x] Slave ID scan / address scan / auto-detect wizard
-- [ ] Grid UI, write dialogs, communication traffic monitor
+- [x] Grid UI, write dialog, communication traffic monitor
+- [x] Workspace save/load + IndexedDB autosave
+- [ ] Scaling, conditional colours, value names
 - [ ] Device profiles (importable register maps)
 - [ ] PWA offline support + GitHub Pages deployment
 
 See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) for the full specification.
+
+## Not verified
+
+**This has never talked to a real Modbus device.** Everything is exercised against a simulated
+line (`src/testing/fakeLink.ts`), which covers framing, timeouts, retries, CRC errors and
+exception replies — but not the analogue reality of an RS-485 segment: termination, biasing,
+adapter turnaround time, or a device that violates the spec.
+
+`src/transport/webSerial.ts` is the one module with no automated coverage, because it is the
+one that touches the browser API. Treat the first bench test with real hardware as the real
+acceptance test.
 
 ## License
 
